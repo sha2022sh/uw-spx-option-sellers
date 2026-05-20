@@ -1,0 +1,143 @@
+//@version=5
+indicator("Abu Wissam SPX Option Sellers Pro API Inputs", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=100)
+
+//======================
+// General
+//======================
+zoneSize = input.float(15, "عرض منطقة التحوط بالنقاط", step=1)
+showZones = input.bool(true, "إظهار مناطق العقود")
+showTable = input.bool(true, "إظهار جدول العقود يسار")
+showSignals = input.bool(true, "إظهار إشارات Market Maker")
+
+maxPain = input.float(0, "Max Pain")
+gammaWall = input.float(0, "Gamma Wall")
+callWall = input.float(0, "Call Wall")
+putWall = input.float(0, "Put Wall")
+gammaMode = input.string("Auto", "حالة Gamma", options=["Auto", "Positive Gamma", "Negative Gamma"])
+
+// Top 5 from API output
+type1 = input.string("C", "Type 1 C/P")
+strike1 = input.float(0, "Strike 1")
+vol1 = input.float(0, "Volume 1")
+oi1 = input.float(0, "Open Interest 1")
+gex1 = input.float(0, "Gamma Exposure 1")
+
+type2 = input.string("P", "Type 2 C/P")
+strike2 = input.float(0, "Strike 2")
+vol2 = input.float(0, "Volume 2")
+oi2 = input.float(0, "Open Interest 2")
+gex2 = input.float(0, "Gamma Exposure 2")
+
+type3 = input.string("C", "Type 3 C/P")
+strike3 = input.float(0, "Strike 3")
+vol3 = input.float(0, "Volume 3")
+oi3 = input.float(0, "Open Interest 3")
+gex3 = input.float(0, "Gamma Exposure 3")
+
+type4 = input.string("P", "Type 4 C/P")
+strike4 = input.float(0, "Strike 4")
+vol4 = input.float(0, "Volume 4")
+oi4 = input.float(0, "Open Interest 4")
+gex4 = input.float(0, "Gamma Exposure 4")
+
+type5 = input.string("C", "Type 5 C/P")
+strike5 = input.float(0, "Strike 5")
+vol5 = input.float(0, "Volume 5")
+oi5 = input.float(0, "Open Interest 5")
+gex5 = input.float(0, "Gamma Exposure 5")
+
+maxVol = math.max(vol1, math.max(vol2, math.max(vol3, math.max(vol4, vol5))))
+totalGex = gex1 + gex2 + gex3 + gex4 + gex5
+
+positiveGamma = gammaMode == "Positive Gamma" or (gammaMode == "Auto" and totalGex >= 0)
+negativeGamma = gammaMode == "Negative Gamma" or (gammaMode == "Auto" and totalGex < 0)
+
+volMA = ta.sma(volume, 20)
+highVol = volume > volMA * 1.5
+atr = ta.atr(14)
+wideCandle = math.abs(close - open) > atr * 0.7
+
+drawLevel(_price, _txt, _color) =>
+    if showZones and _price > 0
+        box.new(bar_index - 150, _price + zoneSize, bar_index + 50, _price - zoneSize, bgcolor=color.new(_color, 86), border_color=color.new(_color, 35))
+        line.new(bar_index - 150, _price, bar_index + 50, _price, color=_color, width=2, style=line.style_dashed)
+        label.new(bar_index + 3, _price, _txt + "\n" + str.tostring(_price), style=label.style_label_left, color=_color, textcolor=color.white)
+
+drawContract(_type, _strike, _vol, _oi, _gex) =>
+    if showZones and _strike > 0 and _vol > 0
+        isCall = _type == "C" or _type == "c"
+        isTop = _vol == maxVol
+        c = isCall ? color.red : color.green
+        name = isCall ? "Call Sellers" : "Put Sellers"
+        tag = isTop ? "🔥 TOP VOLUME" : name
+        box.new(bar_index - 80, _strike + zoneSize, bar_index + 30, _strike - zoneSize, bgcolor=color.new(c, isTop ? 75 : 88), border_color=color.new(c, 20))
+        line.new(bar_index - 80, _strike, bar_index + 30, _strike, color=c, width=isTop ? 3 : 1)
+        label.new(bar_index + 2, _strike, tag + "\nStrike: " + str.tostring(_strike) + "\nVol: " + str.tostring(_vol), style=label.style_label_left, color=c, textcolor=color.white)
+
+if barstate.islast
+    drawLevel(callWall, "CALL WALL مقاومة", color.red)
+    drawLevel(putWall, "PUT WALL دعم", color.green)
+    drawLevel(gammaWall, "GAMMA WALL", color.orange)
+    drawLevel(maxPain, "MAX PAIN مغناطيس", color.blue)
+    drawContract(type1, strike1, vol1, oi1, gex1)
+    drawContract(type2, strike2, vol2, oi2, gex2)
+    drawContract(type3, strike3, vol3, oi3, gex3)
+    drawContract(type4, strike4, vol4, oi4, gex4)
+    drawContract(type5, strike5, vol5, oi5, gex5)
+
+nearCall = callWall > 0 and close >= callWall - zoneSize and close <= callWall + zoneSize
+nearPut = putWall > 0 and close >= putWall - zoneSize and close <= putWall + zoneSize
+nearGamma = gammaWall > 0 and close >= gammaWall - zoneSize and close <= gammaWall + zoneSize
+nearMaxPain = maxPain > 0 and close >= maxPain - zoneSize and close <= maxPain + zoneSize
+
+mmPressure = (nearCall or nearPut or nearGamma) and highVol and wideCandle
+gammaExplosion = negativeGamma and mmPressure
+gammaPinning = positiveGamma and nearMaxPain
+
+plotshape(showSignals and nearCall, title="Call Sellers", text="Call Sellers\nمقاومة", style=shape.labeldown, location=location.abovebar, color=color.red, textcolor=color.white)
+plotshape(showSignals and nearPut, title="Put Sellers", text="Put Sellers\nدعم", style=shape.labelup, location=location.belowbar, color=color.green, textcolor=color.white)
+plotshape(showSignals and gammaExplosion, title="Gamma Explosion", text="Gamma\nانفجار", style=shape.triangleup, location=location.belowbar, color=color.orange, textcolor=color.black)
+plotshape(showSignals and gammaPinning, title="Gamma Pinning", text="تثبيت\nMax Pain", style=shape.diamond, location=location.abovebar, color=color.blue, textcolor=color.white)
+plotshape(showSignals and mmPressure, title="MM Pressure", text="Market Maker\nHedging", style=shape.labelup, location=location.belowbar, color=color.yellow, textcolor=color.black)
+
+var table t = table.new(position.middle_left, 6, 8, border_width=1)
+
+fillRow(_row, _type, _strike, _vol, _oi, _gex) =>
+    isTop = _vol == maxVol and _vol > 0
+    bg = isTop ? color.new(color.yellow, 0) : color.new(color.black, 10)
+    txt = isTop ? color.black : color.white
+    role = _type == "C" or _type == "c" ? "Resistance" : "Support"
+    table.cell(t, 0, _row, _type, bgcolor=bg, text_color=txt)
+    table.cell(t, 1, _row, str.tostring(_strike), bgcolor=bg, text_color=txt)
+    table.cell(t, 2, _row, str.tostring(_vol), bgcolor=bg, text_color=txt)
+    table.cell(t, 3, _row, str.tostring(_oi), bgcolor=bg, text_color=txt)
+    table.cell(t, 4, _row, str.tostring(_gex), bgcolor=bg, text_color=txt)
+    table.cell(t, 5, _row, isTop ? "TOP" : role, bgcolor=bg, text_color=txt)
+
+if barstate.islast and showTable
+    table.cell(t, 0, 0, "Type", bgcolor=color.gray, text_color=color.white)
+    table.cell(t, 1, 0, "Strike", bgcolor=color.gray, text_color=color.white)
+    table.cell(t, 2, 0, "Volume", bgcolor=color.gray, text_color=color.white)
+    table.cell(t, 3, 0, "OI", bgcolor=color.gray, text_color=color.white)
+    table.cell(t, 4, 0, "GEX", bgcolor=color.gray, text_color=color.white)
+    table.cell(t, 5, 0, "Role", bgcolor=color.gray, text_color=color.white)
+
+    fillRow(1, type1, strike1, vol1, oi1, gex1)
+    fillRow(2, type2, strike2, vol2, oi2, gex2)
+    fillRow(3, type3, strike3, vol3, oi3, gex3)
+    fillRow(4, type4, strike4, vol4, oi4, gex4)
+    fillRow(5, type5, strike5, vol5, oi5, gex5)
+
+    table.cell(t, 0, 6, "Gamma", bgcolor=color.black, text_color=color.white)
+    table.cell(t, 1, 6, positiveGamma ? "Positive" : "Negative", bgcolor=positiveGamma ? color.green : color.red, text_color=color.white)
+    table.cell(t, 2, 6, "Total", bgcolor=color.black, text_color=color.white)
+    table.cell(t, 3, 6, str.tostring(totalGex), bgcolor=color.black, text_color=color.white)
+    table.cell(t, 4, 6, "MM", bgcolor=color.black, text_color=color.white)
+    table.cell(t, 5, 6, mmPressure ? "ACTIVE" : "Quiet", bgcolor=mmPressure ? color.orange : color.black, text_color=color.white)
+
+alertcondition(nearCall, "السعر عند Call Wall", "السعر دخل منطقة بائعي الكول")
+alertcondition(nearPut, "السعر عند Put Wall", "السعر دخل منطقة بائعي البوت")
+alertcondition(nearGamma, "السعر عند Gamma Wall", "السعر دخل منطقة Gamma")
+alertcondition(gammaExplosion, "Gamma Explosion", "احتمال حركة انفجارية بسبب Negative Gamma")
+alertcondition(gammaPinning, "Gamma Pinning", "احتمال تثبيت السعر قرب Max Pain")
+alertcondition(mmPressure, "Market Maker Hedging", "نشاط تحوط قوي من Market Maker")
